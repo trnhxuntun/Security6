@@ -7,5 +7,5 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 public interface CustomerRepository extends JpaRepository<Customer,Long> {
-
+    boolean existsByEmail(String Email);
 }

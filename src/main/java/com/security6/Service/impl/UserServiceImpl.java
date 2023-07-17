@@ -1,33 +1,45 @@
 package com.security6.Service.impl;
 
-import com.security6.Entity.UserInfor;
+import com.security6.Entity.Product;
+import com.security6.Entity.User;
+import com.security6.Exception.ResourceNotFoundException;
 import com.security6.Payload.UserLogin;
-import com.security6.Repository.UserInforRepository;
+import com.security6.Payload.UserResponse;
+import com.security6.Repository.ProductRepository;
+import com.security6.Repository.UserRepository;
 import com.security6.Service.UserService;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.modelmapper.ModelMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.Date;
+import java.util.Set;
 
 @Service
 public class UserServiceImpl implements UserService {
-    private UserInforRepository repository;
+    private final UserRepository repository;
     @Value("${jwt.secret}")
     private String jwtSecret;
-    private HttpServletResponse response;
-    private HttpServletRequest request;
+    private final HttpServletResponse response;
+    private final HttpServletRequest request;
     BCryptPasswordEncoder passwordEncoder=new BCryptPasswordEncoder();
 
-    public UserServiceImpl(UserInforRepository repository, HttpServletResponse response, HttpServletRequest request) {
+    private ModelMapper mapper;
+    @Autowired
+     private ProductRepository productRepository;
+    public UserServiceImpl(UserRepository repository, HttpServletResponse response, HttpServletRequest request, ModelMapper mapper) {
         this.repository = repository;
         this.response = response;
         this.request = request;
+        this.mapper = mapper;
     }
 
     public String generateJwtToken(String username, String password) {
@@ -41,21 +53,18 @@ public class UserServiceImpl implements UserService {
                 .compact();
     }
     @Override
-    public String addUser(UserInfor userInfo) {
+    public String addUser(User userInfo) {
+        if(repository.existsUserByEmail(userInfo.getEmail()))
+            return "Email đã được đăng ký!!!";
         userInfo.setPassword(passwordEncoder.encode(userInfo.getPassword()));
         repository.save(userInfo);
-        return "Thêm user thành công!";
-    }
-
-    public boolean hasAuthorizationHeader(HttpServletRequest request) {
-        String authorizationHeader = request.getHeader("Authorization");
-        return authorizationHeader != null && authorizationHeader.startsWith("Bearer ");
+        return "Thêm user "+userInfo.getName()+" thành công!!!";
     }
     @Override
     public String Login(UserLogin userLogin) {
         String authorizationHeader = request.getHeader("Authorization");
-        System.out.println("Authorization: "+authorizationHeader);
         if(authorizationHeader != null && authorizationHeader.startsWith("Bearer ")){
+            try{
             String token= authorizationHeader.substring(7);
             String username= Jwts.parser()
                     .setSigningKey(jwtSecret)
@@ -68,20 +77,33 @@ public class UserServiceImpl implements UserService {
                     .parseClaimsJws(token)
                     .getBody();
             String password = (String) claims.get("password");
-            if(repository.existsUserInforByEmail(username)){
-                if (passwordEncoder.matches(password,repository.findByEmail(username).getPassword())){
+            if(repository.existsUserByName(username)){
                     response.addHeader("Authorization", "Bearer " + generateJwtToken(userLogin.getUsername(),userLogin.getPassword()));
-                    return "token chuẩn";
+                    return "token chuẩn!!!";
+            }
+            }catch (Exception ex){
+                System.out.println("Không có token hoặc token hết hạn");
+                if(repository.existsUserByEmail(userLogin.getUsername())){
+                    if (passwordEncoder.matches(userLogin.getPassword(),repository.findByEmail(userLogin.getUsername()).getPassword())){
+                        response.addHeader("Authorization", "Bearer " + generateJwtToken(userLogin.getUsername(),userLogin.getPassword()));
+                        return "Đăng nhập thành công!!!";
+                    }
+                    return "Sai tài khoản hoặc mật khẩu!!!";
                 }
+
             }
         }
-        if(repository.existsUserInforByEmail(userLogin.getUsername())){
-            if (passwordEncoder.matches(userLogin.getPassword(),repository.findByEmail(userLogin.getUsername()).getPassword())){
-                response.addHeader("Authorization", "Bearer " + generateJwtToken(userLogin.getUsername(),userLogin.getPassword()));
-                return "Bearer " +generateJwtToken(userLogin.getUsername(),userLogin.getPassword());
-            }
-            return "Sai tài khoản hoặc mật khẩu";
-        }
-        return "Sai tài khoản hoặc mật khẩu";
+        return "Sai tài khoản hoặc mật khẩu!!!";
+    }
+
+    @Override
+    public UserResponse addProduct(int id, Long idpro) {
+        System.out.println(id+"||"+idpro);
+        User user=repository.findById(id).orElseThrow(() -> new ResourceNotFoundException("User", "id", String.valueOf(id) ));
+        Product product=productRepository.findById(idpro).orElseThrow(() -> new ResourceNotFoundException("sản phẩm","id",String.valueOf(idpro)));
+        user.getProducts().add(product);
+        repository.save(user);
+        UserResponse userResponse=mapper.map(user,UserResponse.class);
+        return userResponse;
     }
 }
